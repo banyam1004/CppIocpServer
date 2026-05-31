@@ -2,6 +2,7 @@
 #include <iostream>
 #include <winsock2.h>
 #include "ClientInfo.h"
+#include "Broadcast.h"
 
 void workerThread(HANDLE iocpHandle) {
 	while (true) {
@@ -26,6 +27,8 @@ void workerThread(HANDLE iocpHandle) {
 
 		clientInfo->buffer[bytesTransferred] = '\0';
 		std::cout << "Client: " << clientInfo->buffer << "\n";
+
+		broadcast(clientInfo->buffer, bytesTransferred, clientInfo->socket);
 
 		DWORD flags = 0;
 		clientInfo->wsaBuf.buf = clientInfo->buffer;

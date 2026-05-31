@@ -26,5 +26,8 @@
     <ClInclude Include="WorkerThread.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="Broadcast.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

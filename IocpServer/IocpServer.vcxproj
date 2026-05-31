@@ -142,6 +142,7 @@
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Broadcast.h" />
     <ClInclude Include="ClientInfo.h" />
     <ClInclude Include="WorkerThread.h" />
   </ItemGroup>

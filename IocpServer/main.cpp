@@ -2,8 +2,9 @@
 #include <winsock2.h>
 #include <thread>
 #include <vector>
-#include "ClientINfo.h"
+#include "ClientInfo.h"
 #include "WorkerThread.h"
+#include "Broadcast.h"
 #pragma comment(lib, "ws2_32.lib")
 
 int main()
@@ -66,6 +67,11 @@ int main()
 		clientInfo->socket = clientSocket;
 		clientInfo->wsaBuf.buf = clientInfo->buffer;
 		clientInfo->wsaBuf.len = sizeof(clientInfo->buffer);
+		
+		{
+			std::lock_guard<std::mutex> lock(clientsMutex);
+			clients.push_back(clientInfo);
+		}
 
 		//소켓을 IOCP에 등록
 		CreateIoCompletionPort((HANDLE)clientSocket, iocpHandle, (ULONG_PTR)clientInfo, 0);
