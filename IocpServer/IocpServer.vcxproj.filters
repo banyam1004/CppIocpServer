@@ -29,5 +29,11 @@
     <ClInclude Include="Broadcast.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="Room.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RoomMavager.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
