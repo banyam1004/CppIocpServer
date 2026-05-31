@@ -26,9 +26,22 @@ void workerThread(HANDLE iocpHandle) {
 		}
 
 		clientInfo->buffer[bytesTransferred] = '\0';
-		std::cout << "Client: " << clientInfo->buffer << "\n";
 
-		broadcast(clientInfo->buffer, bytesTransferred, clientInfo->socket);
+		if (!clientInfo->isNameSet) {
+			strncpy_s(clientInfo->name, clientInfo->buffer, sizeof(clientInfo->name) - 1);
+			clientInfo->isNameSet = true;
+			std::cout << clientInfo->name << " conneted!\n";
+
+			char welcomeMsg[100];
+			snprintf(welcomeMsg, sizeof(welcomeMsg), "%s joined!", clientInfo->name);
+			broadcast(welcomeMsg, strlen(welcomeMsg), clientInfo->socket);
+		}
+		else {
+			char fullMsg[1100];
+			snprintf(fullMsg, sizeof(fullMsg), "%s: %s", clientInfo->name, clientInfo->buffer);
+			std::cout << fullMsg << "\n";
+			broadcast(fullMsg, strlen(fullMsg), clientInfo->socket);
+		}
 
 		DWORD flags = 0;
 		clientInfo->wsaBuf.buf = clientInfo->buffer;
