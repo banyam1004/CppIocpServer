@@ -1,8 +1,10 @@
 #pragma once
 #include <iostream>
 #include <winsock2.h>
+#include <algorithm>
 #include "ClientInfo.h"
 #include "Broadcast.h"
+#include "RoomManager.h"
 
 void workerThread(HANDLE iocpHandle) {
 	while (true) {
@@ -37,10 +39,109 @@ void workerThread(HANDLE iocpHandle) {
 			broadcast(welcomeMsg, strlen(welcomeMsg), clientInfo->socket);
 		}
 		else {
-			char fullMsg[1100];
-			snprintf(fullMsg, sizeof(fullMsg), "%s: %s", clientInfo->name, clientInfo->buffer);
-			std::cout << fullMsg << "\n";
-			broadcast(fullMsg, strlen(fullMsg), clientInfo->socket);
+			if (strncmp(clientInfo->buffer, "/create ", 8) == 0) {
+				char roomName[50];
+				int maxPlayers;
+				sscanf_s(clientInfo->buffer + 8, "%s %d", roomName, (unsigned)sizeof(roomName), &maxPlayers);
+
+				Room* room = createRoom(roomName, maxPlayers, clientInfo);
+
+				char msg[100];
+				snprintf(msg, sizeof(msg), "Room [%d] %s created! (max: %d)",
+					room->id,
+					roomName,
+					maxPlayers
+				);
+				send(clientInfo->socket, msg, strlen(msg), 0);
+			}
+			else if (strncmp(clientInfo->buffer, "/join ", 6) == 0) {
+				int roomId;
+				sscanf_s(clientInfo->buffer + 6, "%d", &roomId);
+
+				if (joinRoom(roomId, clientInfo)) {
+					char msg[100];
+					snprintf(msg, sizeof(msg), "Joined room [%d]!", roomId);
+					send(clientInfo->socket, msg, strlen(msg), 0);
+
+					std::lock_guard<std::mutex> lock(roomsMutex);
+					for (Room* room : rooms) {
+						if (room->id == roomId) {
+							char notify[100];
+							snprintf(notify, sizeof(notify), "%s joined the room!", clientInfo->name);
+							for (ClientInfo* member : room->players) {
+								if (member->socket != clientInfo->socket) {
+									send(member->socket, notify, strlen(notify), 0);
+								}
+							}
+							break;
+						}
+					}
+				}
+				else {
+					char msg[] = "Failed to join room. (Full or not found)";
+					send(clientInfo->socket, msg, strlen(msg), 0);
+				}
+			}
+			else if (strncmp(clientInfo->buffer, "/list", 5) == 0) {
+				if (rooms.empty()) {
+					char msg[] = "No rooms available.";
+					send(clientInfo->socket, msg, strlen(msg), 0);
+				}
+				else {
+					char msg[1024] = "=== Room List ===\n";
+					for(Room* room : rooms) {
+						char roomInfo[256];
+						snprintf(roomInfo, sizeof(roomInfo), "[%d] %s (%d/%d)\n",
+							room->id,
+							room->roomName.c_str(),
+							(int)room->players.size(),
+							room->maxPlayers
+						);
+						strcat_s(msg, sizeof(msg), roomInfo);
+					}
+					send(clientInfo->socket, msg, strlen(msg), 0);
+				}
+			}
+			else if (strncmp(clientInfo->buffer, "/leave", 6) == 0) {
+				int roomId;
+				char leaveMsg[256];
+				bool found = false;
+				std::lock_guard<std::mutex> lock(roomsMutex);
+				for (Room* room : rooms) {
+					for (ClientInfo* member : room->players) {
+						if (member->socket == clientInfo->socket) {
+							roomId = room->id;
+							room->players.erase(
+								std::remove(room->players.begin(), room->players.end(), clientInfo),
+								room->players.end()
+							);
+							if (room->players.empty()) {
+								rooms.erase(std::remove(rooms.begin(), rooms.end(), room), rooms.end());
+								delete room;
+							}
+							char msg[256] = "you left the room";
+							snprintf(leaveMsg, sizeof(leaveMsg), "%s is leave", clientInfo->name);
+							send(clientInfo->socket, msg, strlen(msg), 0);
+							found = true;
+							break;
+						}
+					}
+					if (found) break;
+				}
+				for (Room* room : rooms) {
+					if(room->id == roomId){
+						for (ClientInfo* member : room->players) {
+							send(member->socket, leaveMsg, sizeof(leaveMsg), 0);
+						}
+					}
+				}
+			}
+			else {
+				char fullMsg[1100];
+				snprintf(fullMsg, sizeof(fullMsg), "%s: %s", clientInfo->name, clientInfo->buffer);
+				std::cout << fullMsg << "\n";
+				broadcast(fullMsg, strlen(fullMsg), clientInfo->socket);
+			}
 		}
 
 		DWORD flags = 0;
