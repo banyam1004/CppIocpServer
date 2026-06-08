@@ -5,6 +5,7 @@
 #include "ClientInfo.h"
 #include "Broadcast.h"
 #include "RoomManager.h"
+#include "Logger.h"
 
 void workerThread(HANDLE iocpHandle) {
 	while (true) {
@@ -33,6 +34,7 @@ void workerThread(HANDLE iocpHandle) {
 			strncpy_s(clientInfo->name, clientInfo->buffer, sizeof(clientInfo->name) - 1);
 			clientInfo->isNameSet = true;
 			std::cout << clientInfo->name << " conneted!\n";
+			writeLog(std::string(clientInfo->name) + " connected");
 
 			char welcomeMsg[100];
 			snprintf(welcomeMsg, sizeof(welcomeMsg), "%s joined!", clientInfo->name);
@@ -53,6 +55,7 @@ void workerThread(HANDLE iocpHandle) {
 					maxPlayers
 				);
 				send(clientInfo->socket, msg, strlen(msg), 0);
+				writeLog(std::string(clientInfo->name) + " created room");
 			}
 			else if (strncmp(clientInfo->buffer, "/join ", 6) == 0) {
 				int roomId;
@@ -141,6 +144,7 @@ void workerThread(HANDLE iocpHandle) {
 				snprintf(fullMsg, sizeof(fullMsg), "%s: %s", clientInfo->name, clientInfo->buffer);
 				std::cout << fullMsg << "\n";
 				broadcast(fullMsg, strlen(fullMsg), clientInfo->socket);
+				writeLog(std::string(clientInfo->name) + ": " + clientInfo->buffer);
 			}
 		}
 
