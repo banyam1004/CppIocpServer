@@ -39,6 +39,7 @@ void workerThread(HANDLE iocpHandle) {
 			clientInfo->isNameSet = true;
 
 			std::string welcomeMsg = std::string(clientInfo->name) + " joined!";
+			broadcast(PacketType::NOTIFY, welcomeMsg, clientInfo->socket);
 
 			//broadcast 추가하기
 		}
@@ -90,7 +91,41 @@ void workerThread(HANDLE iocpHandle) {
 				break;
 			}
 			case PacketType::LEAVE: {
-
+				std::string leaveMsg;
+				bool found = false;
+				int roomId = -1;
+				{
+					std::lock_guard<std::mutex> lock(roomsMutex);
+					for (Room* room : rooms) {
+						for (ClientInfo* member : room->players) {
+							if (member->socket == clientInfo->socket) {
+								roomId = room->id;
+								room->players.erase(
+									std::remove(room->players.begin(), room->players.end(), clientInfo),
+									room->players.end()
+								);
+								if (room->players.empty()) {
+									rooms.erase(std::remove(rooms.begin(), rooms.end(), room), rooms.end());
+									delete room;
+								}
+								leaveMsg = std::string(clientInfo->name) + " left the room!";
+								sendPacket(clientInfo->socket, PacketType::NOTIFY, "You left the room!");
+								found = true;
+								break;
+							}
+						}
+						if (found) break;
+					}
+					if (found && roomId != -1) {
+						for (Room* room : rooms) {
+							if (room->id == roomId) {
+								for (ClientInfo* member : room->players) {
+									sendPacket(member->socket, PacketType::NOTIFY, leaveMsg);
+								}
+							}
+						}
+					}
+				}
 			}
 			}
 		}
