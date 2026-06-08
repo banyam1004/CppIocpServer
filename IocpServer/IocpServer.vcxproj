@@ -145,6 +145,7 @@
     <ClInclude Include="Broadcast.h" />
     <ClInclude Include="ClientInfo.h" />
     <ClInclude Include="Logger.h" />
+    <ClInclude Include="Packet.h" />
     <ClInclude Include="Room.h" />
     <ClInclude Include="RoomManager.h" />
     <ClInclude Include="WorkerThread.h" />

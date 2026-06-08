@@ -6,6 +6,7 @@
 #include "Broadcast.h"
 #include "RoomManager.h"
 #include "Logger.h"
+#include "Packet.h"
 
 void workerThread(HANDLE iocpHandle) {
 	while (true) {
@@ -31,123 +32,68 @@ void workerThread(HANDLE iocpHandle) {
 		clientInfo->buffer[bytesTransferred] = '\0';
 
 		if (!clientInfo->isNameSet) {
-			strncpy_s(clientInfo->name, clientInfo->buffer, sizeof(clientInfo->name) - 1);
-			clientInfo->isNameSet = true;
-			std::cout << clientInfo->name << " conneted!\n";
-			writeLog(std::string(clientInfo->name) + " connected");
+			PacketHeader header = parseHeader(clientInfo->buffer);
+			std::string data = parseData(clientInfo->buffer, bytesTransferred);
 
-			char welcomeMsg[100];
-			snprintf(welcomeMsg, sizeof(welcomeMsg), "%s joined!", clientInfo->name);
-			broadcast(welcomeMsg, strlen(welcomeMsg), clientInfo->socket);
+			strncpy_s(clientInfo->name, data.c_str(), sizeof(clientInfo->name) - 1);
+			clientInfo->isNameSet = true;
+
+			std::string welcomeMsg = std::string(clientInfo->name) + " joined!";
+
+			//broadcast 추가하기
 		}
 		else {
-			if (strncmp(clientInfo->buffer, "/create ", 8) == 0) {
+			PacketHeader header = parseHeader(clientInfo->buffer);
+			std::string data = parseData(clientInfo->buffer, bytesTransferred);
+
+
+			switch (header.type) {
+			case PacketType::CHAT: {
+				std::string fullMsg = std::string(clientInfo->name) + ": " + data;
+				writeLog(fullMsg);
+				broadcast(PacketType::CHAT, fullMsg, clientInfo->socket);
+				break;
+			}
+			case PacketType::CREATE: {
 				char roomName[50];
 				int maxPlayers;
-				sscanf_s(clientInfo->buffer + 8, "%s %d", roomName, (unsigned)sizeof(roomName), &maxPlayers);
-
+				sscanf_s(data.c_str(), "%s %d", roomName, (unsigned)sizeof(roomName), &maxPlayers);
 				Room* room = createRoom(roomName, maxPlayers, clientInfo);
-
-				char msg[100];
-				snprintf(msg, sizeof(msg), "Room [%d] %s created! (max: %d)",
-					room->id,
-					roomName,
-					maxPlayers
-				);
-				send(clientInfo->socket, msg, strlen(msg), 0);
+				std::string msg = "Room [" + std::to_string(room->id) + "] " + roomName + " created!";
+				sendPacket(clientInfo->socket, PacketType::NOTIFY, msg);
 				writeLog(std::string(clientInfo->name) + " created room");
+				break;
 			}
-			else if (strncmp(clientInfo->buffer, "/join ", 6) == 0) {
-				int roomId;
-				sscanf_s(clientInfo->buffer + 6, "%d", &roomId);
-
+			case PacketType::JOIN: {
+				int roomId = std::stoi(data);
 				if (joinRoom(roomId, clientInfo)) {
-					char msg[100];
-					snprintf(msg, sizeof(msg), "Joined room [%d]!", roomId);
-					send(clientInfo->socket, msg, strlen(msg), 0);
-
-					std::lock_guard<std::mutex> lock(roomsMutex);
-					for (Room* room : rooms) {
-						if (room->id == roomId) {
-							char notify[100];
-							snprintf(notify, sizeof(notify), "%s joined the room!", clientInfo->name);
-							for (ClientInfo* member : room->players) {
-								if (member->socket != clientInfo->socket) {
-									send(member->socket, notify, strlen(notify), 0);
-								}
-							}
-							break;
-						}
-					}
+					sendPacket(clientInfo->socket, PacketType::NOTIFY, "Joined room!");
 				}
 				else {
-					char msg[] = "Failed to join room. (Full or not found)";
-					send(clientInfo->socket, msg, strlen(msg), 0);
+					sendPacket(clientInfo->socket, PacketType::NOTIFY, "Failed to join room.");
 				}
+				break;
 			}
-			else if (strncmp(clientInfo->buffer, "/list", 5) == 0) {
+			case PacketType::LIST: {
+				std::string msg = "=== Room List ===\n";
 				if (rooms.empty()) {
-					char msg[] = "No rooms available.";
-					send(clientInfo->socket, msg, strlen(msg), 0);
+					msg = "No rooms available.";
 				}
 				else {
-					char msg[1024] = "=== Room List ===\n";
-					for(Room* room : rooms) {
-						char roomInfo[256];
-						snprintf(roomInfo, sizeof(roomInfo), "[%d] %s (%d/%d)\n",
-							room->id,
-							room->roomName.c_str(),
-							(int)room->players.size(),
-							room->maxPlayers
-						);
-						strcat_s(msg, sizeof(msg), roomInfo);
+					for (Room* room : rooms) {
+						msg += "[" + std::to_string(room->id) + "]" + room->roomName +
+							" (" + std::to_string(room->players.size()) + "/" +
+							std::to_string(room->maxPlayers) + ")\n";
 					}
-					send(clientInfo->socket, msg, strlen(msg), 0);
 				}
+				sendPacket(clientInfo->socket, PacketType::NOTIFY, msg);
+				break;
 			}
-			else if (strncmp(clientInfo->buffer, "/leave", 6) == 0) {
-				int roomId;
-				char leaveMsg[256];
-				bool found = false;
-				std::lock_guard<std::mutex> lock(roomsMutex);
-				for (Room* room : rooms) {
-					for (ClientInfo* member : room->players) {
-						if (member->socket == clientInfo->socket) {
-							roomId = room->id;
-							room->players.erase(
-								std::remove(room->players.begin(), room->players.end(), clientInfo),
-								room->players.end()
-							);
-							if (room->players.empty()) {
-								rooms.erase(std::remove(rooms.begin(), rooms.end(), room), rooms.end());
-								delete room;
-							}
-							char msg[256] = "you left the room";
-							snprintf(leaveMsg, sizeof(leaveMsg), "%s is leave", clientInfo->name);
-							send(clientInfo->socket, msg, strlen(msg), 0);
-							found = true;
-							break;
-						}
-					}
-					if (found) break;
-				}
-				for (Room* room : rooms) {
-					if(room->id == roomId){
-						for (ClientInfo* member : room->players) {
-							send(member->socket, leaveMsg, sizeof(leaveMsg), 0);
-						}
-					}
-				}
+			case PacketType::LEAVE: {
+
 			}
-			else {
-				char fullMsg[1100];
-				snprintf(fullMsg, sizeof(fullMsg), "%s: %s", clientInfo->name, clientInfo->buffer);
-				std::cout << fullMsg << "\n";
-				broadcast(fullMsg, strlen(fullMsg), clientInfo->socket);
-				writeLog(std::string(clientInfo->name) + ": " + clientInfo->buffer);
 			}
 		}
-
 		DWORD flags = 0;
 		clientInfo->wsaBuf.buf = clientInfo->buffer;
 		clientInfo->wsaBuf.len = sizeof(clientInfo->buffer);
