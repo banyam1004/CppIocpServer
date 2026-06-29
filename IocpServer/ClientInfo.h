@@ -8,4 +8,6 @@ struct ClientInfo {
 	char name[50];
 	bool isNameSet = false;
 	WSABUF wsaBuf;
+	char recvBuffer[4096];
+	int recvSize = 0;
 };

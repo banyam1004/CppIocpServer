@@ -29,105 +29,112 @@ void workerThread(HANDLE iocpHandle) {
 			continue;
 		}
 
-		clientInfo->buffer[bytesTransferred] = '\0';
+		memcpy(clientInfo->recvBuffer + clientInfo->recvSize, clientInfo->buffer, bytesTransferred);
+		clientInfo->recvSize += bytesTransferred;
 
-		if (!clientInfo->isNameSet) {
-			PacketHeader header = parseHeader(clientInfo->buffer);
-			std::string data = parseData(clientInfo->buffer, bytesTransferred);
+		while (true) {
+			if (clientInfo->recvSize < sizeof(PacketHeader)) break;
 
-			strncpy_s(clientInfo->name, data.c_str(), sizeof(clientInfo->name) - 1);
-			clientInfo->isNameSet = true;
+			PacketHeader header = parseHeader(clientInfo->recvBuffer);
+			int totalSize = header.size;
 
-			std::string welcomeMsg = std::string(clientInfo->name) + " joined!";
-			broadcast(PacketType::NOTIFY, welcomeMsg, clientInfo->socket);
+			if (clientInfo->recvSize < totalSize) break;
 
-			//broadcast 추가하기
-		}
-		else {
-			PacketHeader header = parseHeader(clientInfo->buffer);
-			std::string data = parseData(clientInfo->buffer, bytesTransferred);
+			std::string data = parseData(clientInfo->recvBuffer, totalSize);
 
+			if (!clientInfo->isNameSet) {
+				strncpy_s(clientInfo->name, data.c_str(), sizeof(clientInfo->name) - 1);
+				clientInfo->isNameSet = true;
 
-			switch (header.type) {
-			case PacketType::CHAT: {
-				std::string fullMsg = std::string(clientInfo->name) + ": " + data;
-				writeLog(fullMsg);
-				broadcast(PacketType::CHAT, fullMsg, clientInfo->socket);
-				break;
+				std::string welcomeMsg = std::string(clientInfo->name) + " joined!";
+				broadcast(PacketType::NOTIFY, welcomeMsg, clientInfo->socket);
+				//broadcast 추가하기
 			}
-			case PacketType::CREATE: {
-				char roomName[50];
-				int maxPlayers;
-				sscanf_s(data.c_str(), "%s %d", roomName, (unsigned)sizeof(roomName), &maxPlayers);
-				Room* room = createRoom(roomName, maxPlayers, clientInfo);
-				std::string msg = "Room [" + std::to_string(room->id) + "] " + roomName + " created!";
-				sendPacket(clientInfo->socket, PacketType::NOTIFY, msg);
-				writeLog(std::string(clientInfo->name) + " created room");
-				break;
-			}
-			case PacketType::JOIN: {
-				int roomId = std::stoi(data);
-				if (joinRoom(roomId, clientInfo)) {
-					sendPacket(clientInfo->socket, PacketType::NOTIFY, "Joined room!");
+			else {
+				switch (header.type) {
+				case PacketType::CHAT: {
+					std::string fullMsg = std::string(clientInfo->name) + ": " + data;
+					writeLog(fullMsg);
+					broadcast(PacketType::CHAT, fullMsg, clientInfo->socket);
+					break;
 				}
-				else {
-					sendPacket(clientInfo->socket, PacketType::NOTIFY, "Failed to join room.");
+				case PacketType::CREATE: {
+					char roomName[50];
+					int maxPlayers;
+					sscanf_s(data.c_str(), "%s %d", roomName, (unsigned)sizeof(roomName), &maxPlayers);
+					Room* room = createRoom(roomName, maxPlayers, clientInfo);
+					std::string msg = "Room [" + std::to_string(room->id) + "] " + roomName + " created!";
+					sendPacket(clientInfo->socket, PacketType::NOTIFY, msg);
+					writeLog(std::string(clientInfo->name) + " created room");
+					break;
 				}
-				break;
-			}
-			case PacketType::LIST: {
-				std::string msg = "=== Room List ===\n";
-				if (rooms.empty()) {
-					msg = "No rooms available.";
-				}
-				else {
-					for (Room* room : rooms) {
-						msg += "[" + std::to_string(room->id) + "]" + room->roomName +
-							" (" + std::to_string(room->players.size()) + "/" +
-							std::to_string(room->maxPlayers) + ")\n";
+				case PacketType::JOIN: {
+					int roomId = std::stoi(data);
+					if (joinRoom(roomId, clientInfo)) {
+						sendPacket(clientInfo->socket, PacketType::NOTIFY, "Joined room!");
 					}
-				}
-				sendPacket(clientInfo->socket, PacketType::NOTIFY, msg);
-				break;
-			}
-			case PacketType::LEAVE: {
-				std::string leaveMsg;
-				bool found = false;
-				int roomId = -1;
-				{
-					std::lock_guard<std::mutex> lock(roomsMutex);
-					for (Room* room : rooms) {
-						for (ClientInfo* member : room->players) {
-							if (member->socket == clientInfo->socket) {
-								roomId = room->id;
-								room->players.erase(
-									std::remove(room->players.begin(), room->players.end(), clientInfo),
-									room->players.end()
-								);
-								if (room->players.empty()) {
-									rooms.erase(std::remove(rooms.begin(), rooms.end(), room), rooms.end());
-									delete room;
-								}
-								leaveMsg = std::string(clientInfo->name) + " left the room!";
-								sendPacket(clientInfo->socket, PacketType::NOTIFY, "You left the room!");
-								found = true;
-								break;
-							}
-						}
-						if (found) break;
+					else {
+						sendPacket(clientInfo->socket, PacketType::NOTIFY, "Failed to join room.");
 					}
-					if (found && roomId != -1) {
+					break;
+				}
+				case PacketType::LIST: {
+					std::string msg = "=== Room List ===\n";
+					if (rooms.empty()) {
+						msg = "No rooms available.";
+					}
+					else {
 						for (Room* room : rooms) {
-							if (room->id == roomId) {
-								for (ClientInfo* member : room->players) {
-									sendPacket(member->socket, PacketType::NOTIFY, leaveMsg);
+							msg += "[" + std::to_string(room->id) + "]" + room->roomName +
+								" (" + std::to_string(room->players.size()) + "/" +
+								std::to_string(room->maxPlayers) + ")\n";
+						}
+					}
+					sendPacket(clientInfo->socket, PacketType::NOTIFY, msg);
+					break;
+				}
+				case PacketType::LEAVE: {
+					std::string leaveMsg;
+					bool found = false;
+					int roomId = -1;
+					{
+						std::lock_guard<std::mutex> lock(roomsMutex);
+						for (Room* room : rooms) {
+							for (ClientInfo* member : room->players) {
+								if (member->socket == clientInfo->socket) {
+									roomId = room->id;
+									room->players.erase(
+										std::remove(room->players.begin(), room->players.end(), clientInfo),
+										room->players.end()
+									);
+									if (room->players.empty()) {
+										rooms.erase(std::remove(rooms.begin(), rooms.end(), room), rooms.end());
+										delete room;
+									}
+									leaveMsg = std::string(clientInfo->name) + " left the room!";
+									sendPacket(clientInfo->socket, PacketType::NOTIFY, "You left the room!");
+									found = true;
+									break;
+								}
+							}
+							if (found) break;
+						}
+						if (found && roomId != -1) {
+							for (Room* room : rooms) {
+								if (room->id == roomId) {
+									for (ClientInfo* member : room->players) {
+										sendPacket(member->socket, PacketType::NOTIFY, leaveMsg);
+									}
 								}
 							}
 						}
 					}
 				}
+				}
 			}
-			}
+			int remaining = clientInfo->recvSize - totalSize;
+			memmove(clientInfo->recvBuffer, clientInfo->recvBuffer + totalSize, remaining);
+			clientInfo->recvSize = remaining;
 		}
 		DWORD flags = 0;
 		clientInfo->wsaBuf.buf = clientInfo->buffer;
