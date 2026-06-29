@@ -24,6 +24,29 @@ void workerThread(HANDLE iocpHandle) {
 
 		if (!result || bytesTransferred == 0) {
 			std::cout << "Client disconnected!\n";
+			{
+				std::lock_guard<std::mutex> lock(clientsMutex);
+				clients.erase(
+					std::remove(clients.begin(), clients.end(), clientInfo),
+					clients.end()
+				);
+			}
+			{
+				std::lock_guard<std::mutex> lock(roomsMutex);
+				for (Room* room : rooms) {
+					auto it = std::find(room->players.begin(), room->players.end(), clientInfo);
+					if (it != room->players.end()) {
+						room->players.erase(it);
+						if (room->players.empty()) {
+							rooms.erase(std::remove(rooms.begin(), rooms.end(), room), rooms.end());
+							delete room;
+						}
+						break;
+					}
+				}
+			}
+			writeLog(std::string(clientInfo->name) + " disconneted");
+
 			closesocket(clientInfo->socket);
 			delete clientInfo;
 			continue;
