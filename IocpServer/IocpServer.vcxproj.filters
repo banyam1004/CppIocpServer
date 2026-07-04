@@ -41,5 +41,11 @@
     <ClInclude Include="Packet.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="Database.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="config.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

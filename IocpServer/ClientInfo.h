@@ -10,4 +10,5 @@ struct ClientInfo {
 	WSABUF wsaBuf;
 	char recvBuffer[4096];
 	int recvSize = 0;
+	int userId = 0;
 };

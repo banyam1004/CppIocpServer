@@ -5,10 +5,15 @@
 #include "ClientInfo.h"
 #include "WorkerThread.h"
 #include "Broadcast.h"
+#include "Database.h"
+#include "config.h"
 #pragma comment(lib, "ws2_32.lib")
 
 int main()
 {
+	if (!connectDB(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)) {
+		return 1;
+	}
 	WSADATA wsaData;
 	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
 		std::cerr << "WSAStartup failed\n";

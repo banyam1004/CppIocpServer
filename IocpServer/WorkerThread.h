@@ -7,6 +7,7 @@
 #include "RoomManager.h"
 #include "Logger.h"
 #include "Packet.h"
+#include "Database.h"
 
 void workerThread(HANDLE iocpHandle) {
 	while (true) {
@@ -66,11 +67,38 @@ void workerThread(HANDLE iocpHandle) {
 			std::string data = parseData(clientInfo->recvBuffer, totalSize);
 
 			if (!clientInfo->isNameSet) {
-				strncpy_s(clientInfo->name, data.c_str(), sizeof(clientInfo->name) - 1);
-				clientInfo->isNameSet = true;
+				std::string received = data;
+				int colonPos = received.find(':');
 
-				std::string welcomeMsg = std::string(clientInfo->name) + " joined!";
-				broadcast(PacketType::NOTIFY, welcomeMsg, clientInfo->socket);
+				if (colonPos == std::string::npos) {
+					sendPacket(clientInfo->socket, PacketType::NOTIFY, "Invalid format. Use id:password");
+				}
+				else {
+					std::string username = received.substr(0, colonPos);
+					std::string password = received.substr(colonPos + 1);
+
+					if (loginUser(username, password)) {
+						strncpy_s(clientInfo->name, username.c_str(), sizeof(clientInfo->name) - 1);
+						clientInfo->isNameSet = true;
+						sendPacket(clientInfo->socket, PacketType::NOTIFY, "Login success! Welcome " + username);
+						std::string welcomMsg = username + " joined!";
+						broadcast(PacketType::NOTIFY, welcomMsg, clientInfo->socket);
+						writeLog(username + " logged in");
+					}
+					else {
+						if (registerUser(username, password)) {
+							strncpy_s(clientInfo->name, username.c_str(), sizeof(clientInfo->name) - 1);
+							clientInfo->isNameSet = true;
+							sendPacket(clientInfo->socket, PacketType::NOTIFY, "Register success! Welcome " + username);
+							std::string welcomeMsg = username + " joined!";
+							broadcast(PacketType::NOTIFY, welcomeMsg, clientInfo->socket);
+							writeLog(username + " registered");
+						}
+						else {
+							sendPacket(clientInfo->socket, PacketType::NOTIFY, "Login failed.");
+						}
+					}
+				}
 				//broadcast 추가하기
 			}
 			else {
