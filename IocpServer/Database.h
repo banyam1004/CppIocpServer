@@ -2,6 +2,7 @@
 #include <mysql.h>
 #include <iostream>
 #include <string>
+#include "config.h"
 
 inline MYSQL* dbConn = nullptr;
 
@@ -25,6 +26,16 @@ bool connectDB(const char* host, const char* user,
 	return true;
 }
 
+void checkAndReconnect(const char* host, const char* user,
+	const char* password, const char* dbName) {
+	if (mysql_ping(dbConn) != 0) {
+		std::cerr << "MySQL reconnecting...\n";
+		mysql_close(dbConn);
+		dbConn = mysql_init(NULL);
+		mysql_real_connect(dbConn, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, 3306, NULL, 0);
+	}
+}
+
 void disconnectDB() {
 	if (dbConn != nullptr) {
 		mysql_close(dbConn);
@@ -33,7 +44,17 @@ void disconnectDB() {
 	}
 }
 
+inline std::mutex dbMutex;
+
 bool registerUser(const std::string& username, const std::string& password) {
+	std::lock_guard<std::mutex> lock(dbMutex);
+
+	if (mysql_ping(dbConn) != 0) {
+		std::cerr << "MySQL reconnecting...\n";
+		mysql_close(dbConn);
+		connectDB(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME);
+	}
+
 	std::string query = "INSERT INTO users (username, password) VALUES ('"
 		+ username + "', '" + password + "')";
 
@@ -45,6 +66,14 @@ bool registerUser(const std::string& username, const std::string& password) {
 }
 
 bool loginUser(const std::string& username, const std::string& password) {
+	std::lock_guard<std::mutex> lock(dbMutex);
+
+	if (mysql_ping(dbConn) != 0) {
+		std::cerr << "MySQL reconnecting...\n";
+		mysql_close(dbConn);
+		connectDB(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME);
+	}
+
 	std::string query = "SELECT id FROM users WHERE username='"
 		+ username + "' AND password='" + password + "'";
 
@@ -103,6 +132,15 @@ bool loadOrCreateCharacter(int userId, char* name, int& level, int& hp, int& exp
 }
 
 bool saveCharacter(int userId, int level, int hp, int exp) {
+
+	std::lock_guard<std::mutex> lock(dbMutex);
+
+	if (mysql_ping(dbConn) != 0) {
+		mysql_close(dbConn);
+		dbConn = mysql_init(NULL);
+		mysql_real_connect(dbConn, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, 3306, NULL, 0);
+	}
+
 	std::string query = "UPDATE characters SET level=" + std::to_string(level) +
 		", hp=" + std::to_string(hp) +
 		", exp=" + std::to_string(exp) +
