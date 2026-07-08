@@ -23,8 +23,24 @@ void workerThread(HANDLE iocpHandle) {
 			INFINITE
 		);
 
+		std::cout << "clientInfo address: " << clientInfo << "\n";
+		std::cout << "clientInfo->userId: " << clientInfo->userId << "\n";
+
 		if (!result || bytesTransferred == 0) {
 			std::cout << "Client disconnected!\n";
+			std::cout << "result: " << result << " bytesTransferred: " << bytesTransferred << "\n";
+
+			if (clientInfo->userId > 0) {
+				std::cout << "Saving chracter...\n";
+				saveCharacter(
+					clientInfo->userId,
+					clientInfo->level,
+					clientInfo->hp,
+					clientInfo->exp
+				);
+				writeLog(std::string(clientInfo->name) + " character saved");
+			}
+
 			{
 				std::lock_guard<std::mutex> lock(clientsMutex);
 				clients.erase(
@@ -80,6 +96,10 @@ void workerThread(HANDLE iocpHandle) {
 					if (loginUser(username, password)) {
 						strncpy_s(clientInfo->name, username.c_str(), sizeof(clientInfo->name) - 1);
 						clientInfo->isNameSet = true;
+
+						clientInfo->userId = getUserId(username);
+						std::cout << "userId set: " << clientInfo->userId << "\n";
+
 						sendPacket(clientInfo->socket, PacketType::NOTIFY, "Login success! Welcome " + username);
 						std::string welcomMsg = username + " joined!";
 						broadcast(PacketType::NOTIFY, welcomMsg, clientInfo->socket);
@@ -89,7 +109,23 @@ void workerThread(HANDLE iocpHandle) {
 						if (registerUser(username, password)) {
 							strncpy_s(clientInfo->name, username.c_str(), sizeof(clientInfo->name) - 1);
 							clientInfo->isNameSet = true;
-							sendPacket(clientInfo->socket, PacketType::NOTIFY, "Register success! Welcome " + username);
+
+							clientInfo->userId = getUserId(username);
+
+							loadOrCreateCharacter(
+								clientInfo->userId,
+								clientInfo->charName,
+								clientInfo->level,
+								clientInfo->hp,
+								clientInfo->exp
+							);
+
+							std::string charInfo = "Level: " + std::to_string(clientInfo->level) +
+								" | HP: " + std::to_string(clientInfo->hp) +
+								" | EXP: " + std::to_string(clientInfo->exp);
+
+							sendPacket(clientInfo->socket, PacketType::NOTIFY, "Login success! Welcome " + username);
+							sendPacket(clientInfo->socket, PacketType::NOTIFY, charInfo);
 							std::string welcomeMsg = username + " joined!";
 							broadcast(PacketType::NOTIFY, welcomeMsg, clientInfo->socket);
 							writeLog(username + " registered");
@@ -107,6 +143,11 @@ void workerThread(HANDLE iocpHandle) {
 					std::string fullMsg = std::string(clientInfo->name) + ": " + data;
 					writeLog(fullMsg);
 					broadcast(PacketType::CHAT, fullMsg, clientInfo->socket);
+
+					clientInfo->exp += 10;
+					std::string expMsg = "EXP: " + std::to_string(clientInfo->exp);
+					sendPacket(clientInfo->socket, PacketType::NOTIFY, expMsg);
+
 					break;
 				}
 				case PacketType::CREATE: {
